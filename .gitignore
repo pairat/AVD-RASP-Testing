@@ -1,0 +1,13 @@
+# Claude Code
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# APKs and binaries (don't commit sensitive test artifacts)
+*.apk
+*.zip
+
+# Android SDK artifacts
+local.properties
