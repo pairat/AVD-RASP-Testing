@@ -213,6 +213,184 @@ Status at retest (2025-05-20): **Partially Fixed** — Google Play Integrity API
 - **google_apis vs google_apis_playstore** — only google_apis images can be rooted with rootAVD
 - Adding more modules (LSPosed, HMA) can actually **increase** the detection surface for RASP solutions
 
+## Troubleshooting Log
+
+Real issues encountered during setup and testing, documented for future reference.
+
+---
+
+### AVD: Next Button Greyed Out in System Image Selection
+
+**Problem:** When creating an AVD, selecting a system image in the "Recommended" tab doesn't enable the Next button.
+
+**Solution:**
+- Check if the system image needs to be **downloaded first** (look for a download icon next to it)
+- Try the **"ARM Images"** or **"Other Images"** tabs instead
+- Click a different image, then click back to the desired one — this can un-stick the UI
+- On Apple Silicon, make sure you're selecting **arm64-v8a** images, not x86_64
+
+> **Note:** On Apple Silicon, images won't be labeled `arm64-v8a` explicitly in the UI since ARM is the only architecture available. In the SDK folder structure they still live under `arm64-v8a/` (relevant for the rootAVD command).
+
+**Recommendation:** Use the latest Android Studio version for best Apple Silicon AVD support.
+
+---
+
+### google_apis vs google_apis_playstore Images
+
+**Problem:** rootAVD fails to patch the system image.
+
+**Cause:** You may have selected a `google_apis_playstore` image, which has a locked/read-only system partition.
+
+**Fix:** Use `google_apis` images (without Play Store). These have an unlockable system partition that rootAVD can patch.
+
+---
+
+### ADB: "more than one device/emulator"
+
+**Problem:** Any `adb` command fails with `adb: more than one device/emulator` when both a real phone and emulator are connected.
+
+**Solution:** Either disconnect the real device or use target flags:
+```bash
+adb -d ...   # target real device only
+adb -e ...   # target emulator only
+adb -s <serial> ...  # target specific device by serial
+```
+
+rootAVD specifically requires the emulator to be the **only** connected device — it doesn't support `-e` flag. Always disconnect real phones before running rootAVD.
+
+---
+
+### rootAVD: Shows Help Text Instead of Running
+
+**Problem:** Running `./rootAVD.sh ~/Library/Android/sdk/system-images/...` just prints usage info and doesn't execute.
+
+**Solution:** rootAVD expects a **relative path** from `ANDROID_HOME`, not an absolute path:
+```bash
+# Wrong — absolute path
+./rootAVD.sh ~/Library/Android/sdk/system-images/android-33/google_apis/arm64-v8a/ramdisk.img
+
+# Right — relative path with ANDROID_HOME set
+export ANDROID_HOME=~/Library/Android/sdk
+./rootAVD.sh system-images/android-33/google_apis/arm64-v8a/ramdisk.img
+```
+
+Run `./rootAVD.sh ListAllAVDs` to get exact copy-paste commands for all installed images.
+
+---
+
+### rootAVD: "no ADB connection possible"
+
+**Problem:** rootAVD can't connect even though the path is correct.
+
+**Solution:** The emulator must be **running** before executing rootAVD. Boot the AVD from Android Studio first, then verify:
+```bash
+adb devices
+# Should show: emulator-5554   device
+```
+
+Also ensure `platform-tools` is in your PATH:
+```bash
+export PATH=~/Library/Android/sdk/platform-tools:$PATH
+```
+
+---
+
+### APK Pull: Permission Denied
+
+**Problem:** `adb pull` from `/data/app/` fails with permission denied.
+
+**Solution:** `adb pull` with the full path often works even when `adb shell ls` doesn't:
+```bash
+# This may fail
+adb -d shell ls /data/app/~~<hash>==/com.example.app/
+
+# But this often works
+adb -d pull /data/app/~~<hash>==/com.example.app/base.apk
+```
+
+Alternative workaround using `cat` through shell:
+```bash
+adb -d shell "cat /data/app/~~<hash>==/com.example.app/base.apk" > base.apk
+```
+
+---
+
+### Shamiko: "Please install Magisk Canary (>27005)"
+
+**Problem:** Shamiko v1.2.5 refuses to install on Magisk 26.4 (or other older versions).
+
+**Solution:** Upgrade Magisk before installing Shamiko:
+- Open Magisk app → if update available, tap Install → Direct Install → Reboot
+- Or manually download and install latest Magisk APK:
+```bash
+adb -e install Magisk-latest.apk
+```
+- Alternatively, re-run rootAVD and select the latest stable version (e.g. 30.6) instead of the local/older version
+
+> **Note:** Always check Shamiko's release notes for minimum Magisk version requirements. Newer Shamiko versions may require Magisk Canary builds.
+
+---
+
+### Shamiko ZIP: Unzip Error in Magisk UI
+
+**Problem:** Installing Shamiko via Magisk → Modules → Install from storage fails with unzip error.
+
+**Solution:** Install via adb command line instead, bypassing the Magisk UI file picker:
+```bash
+adb -e push shamiko.zip /data/local/tmp/
+adb -e shell su -c "magisk --install-module /data/local/tmp/shamiko.zip"
+```
+
+This also works for LSPosed and other Magisk module zips that fail in the UI.
+
+---
+
+### Shamiko Download Source
+
+**Problem:** Shamiko releases move around — the original LSPosed repo may be archived or reorganized.
+
+**Workaround:** Check [LSPosed GitHub releases](https://github.com/LSPosed/LSPosed.github.io/releases) for official builds. Verify checksums before installing. Avoid random third-party download sites.
+
+---
+
+### curl: Downloaded ZIP is Actually HTML
+
+**Problem:** Downloading Shamiko or other GitHub release ZIPs via `curl` results in a broken file (actually an HTML redirect page).
+
+**Solution:** Always use `-L` flag to follow redirects:
+```bash
+curl -L -o output.zip "https://github.com/.../release.zip"
+
+# Verify the file is actually a zip
+file output.zip
+# Should say "Zip archive data" — if it says "HTML", the download failed
+```
+
+If it still fails, download manually from the browser and push via adb:
+```bash
+adb -e push ~/Downloads/module.zip /data/local/tmp/
+```
+
+Manual browser download is generally more reliable for GitHub release assets.
+
+---
+
+### RASP vs Liveness — Scope Confusion
+
+**Clarification:** During analysis, it's easy to conflate RASP (e.g. Promon SHIELD) with liveness SDK responsibilities. These are separate layers:
+- **RASP** blocks the app from running in a hostile environment (emulator, rooted device)
+- **Liveness SDK** validates that biometric input is from a real person, regardless of platform
+
+A RASP detection gap doesn't mean the liveness SDK is broken, and vice versa. Test and evaluate them independently.
+
+---
+
+### Adding More Modules Can Increase Detection Surface
+
+**Observation:** During testing, adding LSPosed + Hide My Applist on top of Magisk + Shamiko caused the app shield to detect the environment in cases where Magisk + Shamiko alone might not have triggered detection. Xposed framework injection introduces additional artifacts (zygote modifications, injected classes) that RASP solutions specifically look for.
+
+**Takeaway:** More hiding tools ≠ better hiding. Each additional module adds its own detection surface. Test incrementally — start with the minimum stack and add tools one at a time to identify which combination triggers or evades detection.
+
 ## TODO
 
 - [x] Reproduce AVD setup on Apple Silicon Mac
